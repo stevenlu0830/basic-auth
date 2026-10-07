@@ -1,0 +1,14 @@
+{
+  "name": "basic-auth-demo",
+  "private": true,
+  "description": "A tiny Node.js app that shows what HTTP Basic Authentication looks like in code",
+  "type": "module",
+  "engines": {
+    "node": ">=24.2.0"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "client": "node client.js",
+    "test": "node --test"
+  }
+}
