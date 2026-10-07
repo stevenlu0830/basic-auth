@@ -13,5 +13,4 @@ console.log(`WWW-Authenticate: ${anonymous.headers.get('www-authenticate')}\n`);
 //    Browsers and `curl -u` build this header for you; here we build it by hand.
 const token = Buffer.from('alice:wonderland').toString('base64');
 const res = await fetch(url, { headers: { Authorization: `Basic ${token}` } });
-console.log(`With credentials: ${res.status} ${res.statusText}\n`);
-console.log(await res.text());
+console.log(`With "Authorization: Basic ${token}": ${res.status} ${res.statusText}`);

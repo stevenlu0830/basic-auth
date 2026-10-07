@@ -20,21 +20,24 @@ function basic(username, password) {
   return 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
 }
 
-async function get(path, authorization) {
+async function request(method, path, headers = {}) {
   const res = await fetch(baseUrl + path, {
-    headers: authorization ? { authorization } : {},
+    method,
+    headers,
     signal: AbortSignal.timeout(2000), // fail fast instead of hanging if the server never answers
   });
   return { status: res.status, headers: res.headers, body: await res.text() };
 }
 
+const alice = { authorization: basic('alice', 'wonderland') };
+
 test('the public page needs no credentials', async () => {
-  const res = await get('/');
+  const res = await request('GET', '/');
   assert.equal(res.status, 200);
 });
 
 test('a request without credentials gets a 401 challenge', async () => {
-  const res = await get('/secret');
+  const res = await request('GET', '/secret');
   assert.equal(res.status, 401);
   assert.equal(
     res.headers.get('www-authenticate'),
@@ -43,19 +46,20 @@ test('a request without credentials gets a 401 challenge', async () => {
 });
 
 test('valid credentials unlock the secret page', async () => {
-  const res = await get('/secret', basic('alice', 'wonderland'));
+  const res = await request('GET', '/secret', alice);
   assert.equal(res.status, 200);
   assert.match(res.body, /Hello, alice!/);
 });
 
 test('passwords can contain colons', async () => {
-  const res = await get('/secret', basic('bob', 'yes:we:can'));
+  const res = await request('GET', '/secret', { authorization: basic('bob', 'yes:we:can') });
   assert.equal(res.status, 200);
   assert.match(res.body, /Hello, bob!/);
 });
 
 test('the scheme name is case-insensitive', async () => {
-  const res = await get('/secret', basic('alice', 'wonderland').replace('Basic', 'basic'));
+  const authorization = basic('alice', 'wonderland').replace('Basic', 'basic');
+  const res = await request('GET', '/secret', { authorization });
   assert.equal(res.status, 200);
 });
 
@@ -71,11 +75,35 @@ test('bad credentials get another challenge', async (t) => {
     'not base64': 'Basic !!!',
   };
 
-  for (const [name, header] of Object.entries(badHeaders)) {
+  for (const [name, authorization] of Object.entries(badHeaders)) {
     await t.test(name, async () => {
-      const res = await get('/secret', header);
+      const res = await request('GET', '/secret', { authorization });
       assert.equal(res.status, 401);
       assert.ok(res.headers.has('www-authenticate'));
     });
   }
+});
+
+test('logging out makes the browser ask for the password again', async () => {
+  // The secret page has a logout button, and isn't cached, so Back can't bring it back.
+  const page = await request('GET', '/secret', alice);
+  assert.match(page.body, /<form method="post" action="\/logout">/);
+  assert.equal(page.headers.get('cache-control'), 'no-store');
+
+  // Clicking it sets a cookie.
+  const logout = await request('POST', '/logout', alice);
+  assert.equal(logout.status, 200);
+  const cookie = logout.headers.get('set-cookie').split(';')[0];
+  assert.equal(cookie, 'logged_out=1');
+
+  // The browser still sends alice's password, but with the cookie it's rejected once,
+  // and that rejection deletes the cookie.
+  const rejected = await request('GET', '/secret', { ...alice, cookie });
+  assert.equal(rejected.status, 401);
+  assert.ok(rejected.headers.has('www-authenticate'));
+  assert.match(rejected.headers.get('set-cookie'), /^logged_out=;.*Max-Age=0/);
+
+  // The password typed into the login dialog is then accepted again.
+  const again = await request('GET', '/secret', alice);
+  assert.equal(again.status, 200);
 });
